@@ -9,4 +9,4 @@ The .do file also includes code for data cleaning and variable construction. The
 
 If you use or modify our code, please cite us using the provided citation and DOI.
 
-[![DOI](https://zenodo.org/badge/81597024.svg)](https://zenodo.org/badge/latestdoi/81597024)
+[![DOI](https://zenodo.org/badge/84973137.svg)](https://zenodo.org/badge/latestdoi/84973137)
