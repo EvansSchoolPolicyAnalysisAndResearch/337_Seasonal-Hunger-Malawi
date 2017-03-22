@@ -1,5 +1,5 @@
 *Anderson et al (2017) - Relating Seasonal Hunger and and Prevention and Coping Strategies: A Panel Analysis of Malawian Farm Households
-*Data Cleaning Do-File
+*Data Cleaning and Analysis Do-File
 *********************************
 *** Directories and Paths     ***
 *********************************
@@ -8,6 +8,7 @@ clear matrix
 clear mata
 drop _all
 program drop _all
+graph drop _all
 set more off
 set trace off
 set mem 120m
@@ -16,13 +17,9 @@ set matsize 11000
 
 
 *Replace path name in quotation marks with location of Malawi data folder(s)
-global malawi_data	"\\evansfiles\Files\Project\EPAR\Malawi LSMS-ISA"
+global malawi_data	"PUT DATA PATH HERE"
 
-if c(username)=="Josh"{
-	global malawi_data	"/Users/Josh/Dropbox/Datasets/LSMS-ISA/Malawi/LSMS - EPAR"
-}
-
-
+*These are the names of the folders when directly downloaded from World Bank LSMS page:
 global MW_1	"$malawi_data/2010-11 data - updated"
 global MW_2	"$malawi_data/2013 data"
 ****************************************************************************************************************
@@ -116,7 +113,7 @@ gen age_head = age if relationship==1
 gen male_head = male if relationship==1
 gen adult_male = male==1 & age>=15 & age!=.
 gen adult_female = male==0 & age>=15 & age!=.
-gen educ_head = educ if relationship==1 												// Assuming Training College follows Form 6 and is equivalent to University 1, 2, 3, 4
+gen educ_head = educ if relationship==1 			// Assuming Training College follows Form 6 and is equivalent to University 1, 2, 3, 4
 replace educ_head = 15 if educ_head == 20			 //TC year 1
 replace educ_head = 16 if educ_head == 21			 //TC year 2
 replace educ_head = 17 if educ_head == 22			 //TC year 3
@@ -244,7 +241,7 @@ ren ag_c00 plotid
 gen acres_gps = ag_c04c
 gen acres_report = ag_c04a if ag_c04b==1
 gen acres = acres_gps
-replace acres = acres_report if acres_gps==.											// Use gps unless missing
+replace acres = acres_report if acres_gps==.		// Use gps unless missing
 keep hhid plotid acres
 tempfile mw1_plot
 save `mw1_plot', replace
@@ -352,7 +349,7 @@ replace proportion = 1 if ag_g02==1 | ag_g01==1		// If planted on ENTIRE plot
 bys hhid plotid: egen total_prop = sum(proportion)	// Getting TOTAL proportion, which is not always one
 replace proportion = proportion/total_prop if total_prop>1			// Now they MUST sum to one IF they are over one
 
-*Now I want to tag just one of each crop (e.g. one of the 10 rice varietals)
+*Here we tag just one of each crop (e.g. one of the 10 rice varietals)
 foreach i of varlist maize-other{
 	gen `i'_temp = 1 if `i'==1
 	egen `i'_tag = tag(`i'_temp hhid)		// This variable tags just one of each varietal
@@ -1026,10 +1023,11 @@ recode livestock_any (.=0)		// Assuming these households were not in the livesto
 *Recoding assuming missing are zero
 recode fruit fish fish crop_count_perm (.=0)
 
-*NOTE: Now herf is increasing in diversity
-foreach i of varlist herf*{
-	replace `i' = 1-`i'
-}
+*NOTE: Now herf is increasing in diversity - This is now a Simpson index
+gen simpson = 1-herf
+gen simpson_previous = 1-herf_previous
+
+
 
 *Giving wave 2 observation the wave 1 value for first and last harvest
 bys hhid (wave): gen first_harv_wave1 = first_harv_month[_n-1]
@@ -1210,11 +1208,11 @@ keep hhid country wave ym* hunger_date hunger month region rural ag_hh weight di
 *ym_int is the interview variable, while hunger_date is the date of hunger question variable (H05)
 gen hunger_int_diff = ym_int-hunger_date
 tab hunger_int_diff
-tab hunger_int_diff if hunger==1		// This should only be 0-12! And it is
+tab hunger_int_diff if hunger==1		// This should only be 0-12, which it is
 keep if hunger_int_diff>0 & hunger_int_diff<=12		// Using this information, we have dropped all OTHER months
 
 
-*Here, I am creating seasonal hunger variables
+*Creating seasonal hunger variables
 gen pre_harvest = hunger_date==ym_harv_first | hunger_date==(ym_harv_first-1) | hunger_date==(ym_harv_first-2) | hunger_date==(ym_harv_first-3) if hunger_date!=. & ym_harv_first!=.
 gen pre_harv_hunger = pre_harvest==1 & hunger==1 if pre_harvest!=.
 gen chronic_month_hunger = pre_harvest==0 & hunger==1 if pre_harvest!=.
@@ -1232,13 +1230,6 @@ save `hunger_vars', replace
 
 collapse (sum) pre_harv_hunger* hunger chronic_month_hunger*, by(wave hhid)
 
-
-*Cleaning a few things and creating hunger variables
-*Hunger variables
-*gen chronic_hunger = hunger>=3 & hunger!=.
-*gen seasonal_hunger = pre_harv_hunger!=0
-*gen seasonal_hunger_ALL = pre_harv_hunger_ALL!=0
-
 tempfile merge
 save `merge', replace
 
@@ -1249,7 +1240,7 @@ merge 1:1 wave hhid using `merge', nogen keep(1 3)			// All matched from MASTER
 															// 5 not matched from master
 
 ren ssa_aez09 agrozone
-keep *hunger* herf_previous month wave crop_count* weight wave hhid first_harv district ///
+keep *hunger* herf_previous simpson_previous month wave crop_count* weight wave hhid first_harv district ///
 agrozone ta acres acres_planted sales_* ea_id stratum ag_hh ag2008 ag2011 nfe* livestock* ym_* *_num remittances crop_count_perm *fert rain_* ///
 adult_* children age_head male_head ent_* *count* *harv* hhsize fruit fish fish rural ///
 bovine goat sheep pig poultry month_* region educ_head dist_road rain2010_tot rain2012_tot sales_dum_perm stored_* any_wage any_perm_food sales_dum_perm split
@@ -1279,8 +1270,8 @@ gen `weight2' = weight if wave==2 & country=="Malawi"
 *we are using the second wave's pweight for household fixed effects, as per the World Bank
 bys hhid: egen panel_weight = max(`weight2')
 
-*Herf should never actually be equal to zero
-recode herf_previous (1=.)
+*Simpson index should never actually be equal to zero
+recode simpson_previous (1=.)
 
 *Assuming livestock variables are zero if it is missing
 recode livestock_any *_num (.=0)
@@ -1296,7 +1287,7 @@ gen stored_crop = stored_annual==1 | stored_perm==1
 egen ea_wave = group(ea_id wave)
 
 *Labeling variables
-la var herf_previous "Herf index in previous season (planted acres)"
+la var simpson_previous "Simpson index in previous season (planted acres)"
 la var adult_male "Adult males"
 la var adult_female "Adult females"
 la var children "Children (age<15)"
@@ -1351,9 +1342,9 @@ gen integer_weight = floor(weight)
 
 
 *Summary statistics
-eststo sum1: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert herf_previous poultry_num other_num stored_crop ///
+eststo sum1: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert simpson_previous poultry_num other_num stored_crop ///
 remittances any_wage sales_dum_perm any_perm_food rural ag_hh if wave==1
-eststo sum2: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert herf_previous poultry_num other_num stored_crop ///
+eststo sum2: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert simpson_previous poultry_num other_num stored_crop ///
 remittances any_wage sales_dum_perm any_perm_food rural ag_hh if wave==2
 *****************
 *    Table 1    *
@@ -1364,9 +1355,9 @@ esttab sum1 sum2, label replace cells("mean(fmt(3)) sd(fmt(3) par)") mlabels("Wa
 
 
 *Summary statistics
-eststo sum1: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert herf_previous poultry_num other_num stored_crop ///
+eststo sum1: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert simpson_previous poultry_num other_num stored_crop ///
 remittances any_wage sales_dum_perm any_perm_food rural if wave==1 & ag_hh==1
-eststo sum2: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert herf_previous poultry_num other_num stored_crop ///
+eststo sum2: estpost sum age_head educ_head male_head hhsize dist_road rain acres crop_count orgfert inorgfert simpson_previous poultry_num other_num stored_crop ///
 remittances any_wage sales_dum_perm any_perm_food rural if wave==2 & ag_hh==1
 *****************
 *   Table A1    *
@@ -1500,10 +1491,10 @@ restore
 
 *Descriptive regressions
 eststo reg1: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==1
-eststo reg2: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+eststo reg2: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==1
 eststo reg3: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==2
-eststo reg4: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+eststo reg4: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==2
 
 ********************
@@ -1516,7 +1507,7 @@ esttab reg1 reg2 reg3 reg4, cells(b(fmt(3) star) se(fmt(3) par)) replace starlev
 
 
 eststo reg1: areg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight], absorb(ea_wave) cluster(ea_wave)
-eststo reg2: areg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+eststo reg2: areg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight], absorb(ea_wave) cluster(ea_wave)
 
 *******************
@@ -1528,7 +1519,6 @@ esttab reg1 reg2, cells(b(fmt(3) star) se(fmt(3) par)) replace starlevels(* 0.1 
 
 
 
-*JDM START HERE
 *Hunger and date of harvest
 *Any harvest
 eststo date5: areg month_start pre_harv_hunger hhsize male_head acres other_num poultry_num rain i.wave##i.region [pweight=panel_weight] if split==1 | wave==1, cluster(hhfe) absorb(hhfe)
@@ -1540,7 +1530,7 @@ eststo date7: areg month_start_maize pre_harv_hunger hhsize male_head acres othe
 *   Table 5    *
 * HHID FE Regs *
 ****************
-esttab date5 date7 using "/Users/Josh/Desktop/temp.rtf", b(3) se(3) par starlevels(* 0.1 ** 0.05 *** 0.01) label keep(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) order(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) coeflabels(rain "Rainfall") stats(N r2, fmt(0 3)) mlabels("Start of harvest" "Start of maize harvest") replace onecell
+esttab date5 date7, b(3) se(3) par starlevels(* 0.1 ** 0.05 *** 0.01) label keep(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) order(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) coeflabels(rain "Rainfall") stats(N r2, fmt(0 3)) mlabels("Start of harvest" "Start of maize harvest") replace onecell
 
 
 
@@ -1557,13 +1547,13 @@ esttab date5 date7 using "/Users/Josh/Desktop/temp.rtf", b(3) se(3) par starleve
 
 
 *Checks for multicollinearity
-corr pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+corr pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm					// highest: 0.3826
 
-reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm
 vif					// Highest: 1.24, well below commonly used cut-off of 10 (Wooldridge, 2009)
-reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm
 vce, corr
 
@@ -1588,15 +1578,15 @@ whitetst			// p-value=0.0000
 * Robustness checks
 *Negative binomial
 nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==1
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==1
 
 nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==2
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==2
 
 nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert i.ea_wave [pweight=weight]
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm i.ea_wave [pweight=weight]
 
 
@@ -1605,13 +1595,13 @@ poultry_num other_num stored_crop remittances any_wage sales_dum_perm i.ea_wave 
 *Transformation of DV (log+1)
 gen log_hunger = ln(pre_harv_hunger+1)
 reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==1
-reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==1
 reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==2
-reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==2
 areg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight], absorb(ea_wave) cluster(ea_wave)
-areg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert herf_previous any_perm_food ///
+areg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
 poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight], absorb(ea_wave) cluster(ea_wave)
 
 
