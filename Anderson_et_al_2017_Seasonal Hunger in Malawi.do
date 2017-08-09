@@ -22,6 +22,7 @@ global malawi_data	"PUT DATA PATH HERE"
 *These are the names of the folders when directly downloaded from World Bank LSMS page:
 global MW_1	"$malawi_data/2010-11 data - updated"
 global MW_2	"$malawi_data/2013 data"
+
 ****************************************************************************************************************
 
 ************************
@@ -1338,6 +1339,7 @@ la var educ_head "Education of household head (years)"
 la var rain "Total rainfall in reference growing season (mm)
 gen hhfe = hhidfe
 gen integer_weight = floor(weight)
+gen any_hunger = pre_harv_hunger!=0 if pre_harv_hunger!=.
 
 
 
@@ -1490,48 +1492,68 @@ restore
 
 
 *Descriptive regressions
-eststo reg1: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==1
-eststo reg2: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==1
-eststo reg3: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==2
-eststo reg4: reg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==2
+*ologit
+eststo ologit1: ologit pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==1
+eststo ologit3: ologit pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food poultry_num ///
+other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==1
+
+eststo ologit5: ologit pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==2, vce(robust)
+eststo ologit7: ologit pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food poultry_num ///
+other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==2, vce(robust)
 
 ********************
 *      Table 3     *
 * Descriptive Regs *
 ********************
-esttab reg1 reg2 reg3 reg4, cells(b(fmt(3) star) se(fmt(3) par)) replace starlevels(* 0.1 ** 0.05 *** 0.01) label stats(N r2_a, fmt(0 3)) onecell
+*ologit only
+esttab ologit1 ologit3 ologit5 ologit7, cells(b(fmt(4) star) se(fmt(4) par)) replace starlevels(* 0.1 ** 0.05 *** 0.01) label stats(N, fmt(0 3)) onecell keep(age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food poultry_num other_num stored_crop remittances any_wage sales_dum_perm) mlabels("Wave 1, Model 1" "Wave 1, Model 2" "Wave 2, Model 1" "Wave 2, Model 2") rtf eform
 
 
 
 
-eststo reg1: areg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight], absorb(ea_wave) cluster(ea_wave)
-eststo reg2: areg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight], absorb(ea_wave) cluster(ea_wave)
+
+
+
+
+
+*ologit table 4
+eststo reg1: ologit pre_harv_hunger i.ea_wave age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight], vce(robust)
+
+eststo reg2: ologit pre_harv_hunger i.ea_wave age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
+poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight]
+
 
 *******************
 *     Table 4     *
 * EA/Wave FE Regs *
 *******************
-esttab reg1 reg2, cells(b(fmt(3) star) se(fmt(3) par)) replace starlevels(* 0.1 ** 0.05 *** 0.01) label stats(N r2_a, fmt(0 3)) onecell
+esttab reg1 reg2, cells(b(fmt(4) star) se(fmt(4) par)) starlevels(* 0.1 ** 0.05 *** 0.01) label stats(N, fmt(0 3)) onecell keep(age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food poultry_num other_num stored_crop remittances any_wage sales_dum_perm) rtf eform
 
 
 
 
 *Hunger and date of harvest
+*OLS
 *Any harvest
 eststo date5: areg month_start pre_harv_hunger hhsize male_head acres other_num poultry_num rain i.wave##i.region [pweight=panel_weight] if split==1 | wave==1, cluster(hhfe) absorb(hhfe)
 *Maize harvest
-eststo date7: areg month_start_maize pre_harv_hunger hhsize male_head acres other_num poultry_num rain i.wave##i.region [pweight=panel_weight] if split==1 | wave==1, cluster(hhfe) absorb(hhfe)
+eststo date6: areg month_start_maize pre_harv_hunger hhsize male_head acres other_num poultry_num rain i.wave##i.region [pweight=panel_weight] if split==1 | wave==1, cluster(hhfe) absorb(hhfe)
 
+*OLOGIT
+*Any harvest
+eststo date7: ologit month_start i.hhfe pre_harv_hunger hhsize male_head acres other_num poultry_num rain i.wave##i.region [pweight=panel_weight] if split==1 | wave==1, cluster(hhfe) or
+*margins, dydx(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) atmeans
+*Maize harvest
+eststo date8: ologit month_start_maize i.hhfe pre_harv_hunger hhsize male_head acres other_num poultry_num rain i.wave##i.region [pweight=panel_weight] if split==1 | wave==1, cluster(hhfe) or
+*margins, dydx(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) atmeans
 
 ****************
 *   Table 5    *
 * HHID FE Regs *
 ****************
-esttab date5 date7, b(3) se(3) par starlevels(* 0.1 ** 0.05 *** 0.01) label keep(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) order(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) coeflabels(rain "Rainfall") stats(N r2, fmt(0 3)) mlabels("Start of harvest" "Start of maize harvest") replace onecell
+esttab date5 date6, b(3) se(3) par starlevels(* 0.1 ** 0.05 *** 0.01) label keep(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) order(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) coeflabels(rain "Rainfall") stats(N r2, fmt(0 3)) mlabels("Start of harvest" "Start of maize harvest") replace onecell rtf
 
+esttab date7 date8, b(3) se(3) par starlevels(* 0.1 ** 0.05 *** 0.01) label keep(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) order(pre_harv_hunger hhsize male_head acres other_num poultry_num rain) coeflabels(rain "Rainfall") stats(N, fmt(0)) mlabels("Start of harvest" "Start of maize harvest") replace onecell rtf eform
 
 
 
@@ -1572,37 +1594,6 @@ whitetst			// p-value=0.0000
 
 
 
-
-
-*********
-* Robustness checks
-*Negative binomial
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==1
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==1
-
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==2
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==2
-
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert i.ea_wave [pweight=weight]
-nbreg pre_harv_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm i.ea_wave [pweight=weight]
-
-
-
-
-*Transformation of DV (log+1)
-gen log_hunger = ln(pre_harv_hunger+1)
-reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==1
-reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==1
-reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight] if wave==2
-reg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight] if wave==2
-areg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert [pweight=weight], absorb(ea_wave) cluster(ea_wave)
-areg log_hunger age_head educ_head male_head hhsize dist_road rain acres orgfert inorgfert simpson_previous any_perm_food ///
-poultry_num other_num stored_crop remittances any_wage sales_dum_perm [pweight=weight], absorb(ea_wave) cluster(ea_wave)
 
 
 
